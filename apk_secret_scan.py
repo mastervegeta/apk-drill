@@ -105,6 +105,34 @@ def looks_like_package(name: str) -> bool:
     return " " not in name and "." in name and "/" not in name
 
 
+def already_scanned(results_path: Path) -> set[str]:
+    """
+    Packages that already have a *successful* result in the JSONL (a finding, or
+    a `clean` status). Used by --skip-scanned to resume a large run without
+    redoing work. Failures (download_failed, error:*) are deliberately NOT
+    counted as done, so a resume retries them — an APKPure miss is often
+    transient or fixable by switching --source.
+    """
+    done: set[str] = set()
+    if not results_path.exists():
+        return done
+    for line in results_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        pkg = rec.get("package")
+        if not pkg:
+            continue
+        status = rec.get("status")
+        if status is None or status == "clean":   # a finding row, or a clean scan
+            done.add(pkg)
+    return done
+
+
 # --------------------------------------------------------------------------- #
 # pipeline steps
 # --------------------------------------------------------------------------- #
@@ -240,6 +268,9 @@ def main() -> int:
                     help="Keep only live/verified secrets (recommended to cut noise).")
     ap.add_argument("--keep-files", action="store_true",
                     help="Do NOT delete downloaded/extracted files after each package.")
+    ap.add_argument("--skip-scanned", action="store_true",
+                    help="Resume: skip packages already scanned OK in the output "
+                         "file (failures are retried). Lets a big run resume.")
     ap.add_argument("--download-timeout", type=int, default=300)
     ap.add_argument("--scan-timeout", type=int, default=600)
     ap.add_argument("--workdir", type=Path, default=Path("._apk_work"),
@@ -256,6 +287,18 @@ def main() -> int:
     if not packages:
         log("FATAL: no package names read from input.")
         return 1
+
+    if args.skip_scanned:
+        done = already_scanned(args.output)
+        if done:
+            before = len(packages)
+            packages = [p for p in packages if p not in done]
+            log(f"--skip-scanned: {before - len(packages)} already done, "
+                f"{len(packages)} to go.")
+
+    if not packages:
+        log("Nothing to scan (all packages already done?). Exiting.")
+        return 0
 
     log(f"Loaded {len(packages)} package(s). Scope reminder: authorized targets only.")
     args.workdir.mkdir(parents=True, exist_ok=True)

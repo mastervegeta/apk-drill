@@ -28,6 +28,21 @@ HIGH_IMPACT_DETECTORS = {
     "Firebase", "Gemini", "OpenAI", "Anthropic",
 }
 
+# Detectors that are *designed* to ship in a client app: telemetry, analytics,
+# attribution, crash-reporting, search-only keys. "Verified live" for these
+# usually means "working as intended", not "leak" — most programs close them as
+# informational. We still list them; we just flag them so you assess impact
+# before spending a report on one.
+LOW_VALUE_IN_CLIENT = {
+    "NewRelicLicenseKey", "NewRelic", "SentryToken", "Sentry", "Bugsnag",
+    "Instabug", "Datadog", "Mixpanel", "Segment", "Amplitude", "Algolia",
+    "Branch", "Adjust", "AppsFlyer", "Intercom", "Pendo", "Iterable",
+    "GoogleApiKey", "Firebase", "Mapbox", "Pusher", "OneSignal",
+}
+LOW_VALUE_NOTE = ("designed to ship in a client app (telemetry / analytics / "
+                  "attribution) — usually informational; confirm what it "
+                  "actually authorizes before reporting")
+
 
 def severity(detector: str | None, verified: bool) -> str:
     if verified:
@@ -72,6 +87,11 @@ def build_report(findings: list[dict], status_counts: dict, source_name: str) ->
         sev_totals[f["_sev"]] += 1
 
     verified_total = sum(1 for f in findings if f.get("verified"))
+    distinct = len({(f.get("package"), f.get("detector"),
+                     (f.get("raw_secret_redacted") or "").strip()) for f in findings})
+    low_value_verified = sum(
+        1 for f in findings
+        if f.get("verified") and f.get("detector") in LOW_VALUE_IN_CLIENT)
 
     lines: list[str] = []
     lines.append("# APK Secret Scan Report\n")
@@ -80,8 +100,11 @@ def build_report(findings: list[dict], status_counts: dict, source_name: str) ->
     # ---- summary ----
     lines.append("## Summary\n")
     lines.append(f"- **Packages with findings:** {len(by_pkg)}")
-    lines.append(f"- **Total findings:** {len(findings)}")
-    lines.append(f"- **Verified (live) secrets:** {verified_total}")
+    lines.append(f"- **Total findings:** {len(findings)} ({distinct} distinct secret(s) after dedupe)")
+    lines.append(f"- **Verified (live) secrets:** {verified_total}"
+                 + (f" — of which {low_value_verified} are client-side "
+                    "telemetry/analytics keys (⚑ usually informational)"
+                    if low_value_verified else ""))
     for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
         if sev_totals.get(sev):
             lines.append(f"- **{sev}:** {sev_totals[sev]}")
@@ -107,22 +130,41 @@ def build_report(findings: list[dict], status_counts: dict, source_name: str) ->
             return (worst, -len(fs), pkg)
 
         for pkg, fs in sorted(by_pkg.items(), key=pkg_rank):
-            fs_sorted = sorted(fs, key=lambda f: (SEV_ORDER[f["_sev"]], f.get("detector") or ""))
-            worst = min(fs, key=lambda f: SEV_ORDER[f["_sev"]])["_sev"]
-            lines.append(f"### `{pkg}` — worst: {worst} ({len(fs)} finding(s))\n")
-            lines.append("| Severity | Detector | Verified | File | Redacted |")
+            # Collapse duplicates: the same key turns up once per file it lives
+            # in (raw .apk + extracted classes.dex, split bundles, etc.). Group
+            # on (detector, verified, redacted secret) and count occurrences so
+            # a report shows distinct secrets, not scan artifacts.
+            groups: dict[tuple, dict] = {}
+            for f in fs:
+                key = (f.get("detector"), bool(f.get("verified")),
+                       (f.get("raw_secret_redacted") or "").strip())
+                g = groups.setdefault(key, {"sev": f["_sev"], "files": set(), "n": 0})
+                g["n"] += 1
+                if f.get("file"):
+                    g["files"].add("/".join(Path(f["file"]).parts[-3:]))
+
+            uniq = sorted(groups.items(),
+                          key=lambda kv: (SEV_ORDER[kv[1]["sev"]], kv[0][0] or ""))
+            worst = min(g["sev"] for _, g in uniq)
+            low_val = {k[0] for k, _ in uniq if k[0] in LOW_VALUE_IN_CLIENT}
+
+            lines.append(f"### `{pkg}` — worst: {worst} "
+                         f"({len(uniq)} distinct secret(s), {len(fs)} raw hit(s))\n")
+            if low_val:
+                lines.append(f"> ⚑ Contains **{', '.join(sorted(low_val))}** — {LOW_VALUE_NOTE}.\n")
+            lines.append("| Severity | Detector | Verified | Redacted | Seen in |")
             lines.append("|---|---|---|---|---|")
-            for f in fs_sorted:
-                file_short = (f.get("file") or "")
-                # trim the scratch path prefix for readability
-                if file_short:
-                    file_short = ".../" + "/".join(Path(file_short).parts[-3:])
+            for (detector, verified, redacted), g in uniq:
+                flag = " ⚑" if detector in LOW_VALUE_IN_CLIENT else ""
+                seen = "; ".join(f"`.../{p}`" for p in sorted(g["files"])[:2]) or "—"
+                if len(g["files"]) > 2:
+                    seen += f" +{len(g['files']) - 2}"
                 lines.append(
-                    f"| {f['_sev']} "
-                    f"| {f.get('detector','?')} "
-                    f"| {'✅' if f.get('verified') else '—'} "
-                    f"| `{file_short}` "
-                    f"| `{(f.get('raw_secret_redacted') or '').strip()}` |"
+                    f"| {g['sev']} "
+                    f"| {detector or '?'}{flag} "
+                    f"| {'✅' if verified else '—'} "
+                    f"| `{redacted}` "
+                    f"| {seen} |"
                 )
             lines.append("")
 
