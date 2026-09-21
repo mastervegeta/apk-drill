@@ -41,8 +41,14 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Installs `apkeep` (downloader) and `trufflehog` (scanner). See the script if you
-need the manual steps or a non-Ubuntu setup.
+Installs `apkeep` (downloader) and `trufflehog` (scanner). `apkeep` comes from
+the prebuilt release binary where one matches the arch (x86_64 / aarch64 /
+armv7 Linux), falling back to `cargo install` otherwise — so a server doesn't
+need a Rust toolchain just for a downloader. Override with `APKEEP_VERSION=` or
+`BIN_DIR=`.
+
+Running against a box that already has other workloads? See
+[docs/running-on-a-server.md](docs/running-on-a-server.md).
 
 ## Usage
 
