@@ -1,0 +1,16 @@
+# scan scratch + outputs
+._apk_work/
+*.jsonl
+report.md
+*.apk
+*.xapk
+*.apks
+
+# real target lists (keep only the example in git)
+packages.txt
+packages*.csv
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
