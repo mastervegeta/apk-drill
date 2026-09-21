@@ -50,6 +50,38 @@ need a Rust toolchain just for a downloader. Override with `APKEEP_VERSION=` or
 Running against a box that already has other workloads? See
 [docs/running-on-a-server.md](docs/running-on-a-server.md).
 
+## Building a package list
+
+For your own apps, the package is the `applicationId` in `app/build.gradle`.
+
+For bug-bounty targets, `scripts/scope_to_packages.py` extracts the in-scope
+Android assets from the public program directories of HackerOne, Bugcrowd,
+Intigriti and YesWeHack (via the daily
+[bounty-targets-data](https://github.com/arkadiyt/bounty-targets-data) mirror —
+no API keys):
+
+```bash
+python3 scripts/scope_to_packages.py -o packages.csv --txt packages.txt
+```
+
+It writes a CSV carrying provenance — platform, program, policy URL, the raw
+scope string, and the date pulled — so a later report can show the asset was
+listed in scope on the day it was scanned. The scanner reads the `package`
+column and ignores the rest.
+
+Assets that name an app in prose ("Acrobat Reader Mobile App (Android)") or
+point at a publisher page ("every app by Sky Betting and Gaming") can't be
+resolved to a package id automatically. They go to `unresolved_assets.txt` for
+manual Play Store lookup rather than being guessed at.
+
+Useful flags: `--platforms hackerone yeswehack`, `--program acme` (substring
+filter), `--bounty-only`, `--cache-dir` (reuse the downloaded JSON).
+
+> **A scope listing is not authorization.** The script reports what a program
+> *lists*; it cannot tell you whether the program permits APK/mobile testing,
+> whether it's open to you, or whether the listing is current. Read the policy
+> before scanning anything it emits.
+
 ## Usage
 
 **1. Prepare a package list** — plain text (one package per line) or a CSV with a
@@ -118,6 +150,7 @@ per-package worker split would be the starting point if scaling is wanted later.
 |---|---|
 | `apk_secret_scan.py` | Main download → extract → scan → JSONL pipeline. |
 | `report.py` | JSONL → Markdown report + remediation plan. |
+| `scripts/scope_to_packages.py` | Public bug-bounty scopes → package list with provenance. |
 | `install.sh` | Dependency installer (Ubuntu). |
 | `packages.example.txt` | Example package list. |
 
