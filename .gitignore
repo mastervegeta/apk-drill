@@ -31,3 +31,4 @@ reports/updated-android-*.txt
 # js_pull output
 js_out/
 domains*.csv
+recon/
