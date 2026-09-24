@@ -27,3 +27,6 @@ reports/new-android-*.txt
 reports/app-updates-*.md
 reports/updated-android-*.txt
 .venv/
+
+# js_pull output
+js_out/
