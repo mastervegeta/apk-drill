@@ -19,3 +19,8 @@ unresolved_assets.txt
 # Google Play creds for apk_fetch.py — never commit
 .gplay.env
 .gplay.ini
+
+# new_projects_watch.py runtime state + outputs
+state/
+reports/new-projects-*.md
+reports/new-android-*.txt
