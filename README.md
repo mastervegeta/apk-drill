@@ -174,7 +174,8 @@ per-package worker split would be the starting point if scaling is wanted later.
 |---|---|
 | `apk_secret_scan.py` | Main download → extract → scan → JSONL pipeline. |
 | `report.py` | Secret-scan JSONL → Markdown report + remediation plan. |
-| `apk_surface_map.py` | Attack-surface mapper: exported components, deeplinks, API endpoints, Firebase, GraphQL → JSONL. |
+| `apk_fetch.py` | Multi-source downloader (mirrors → authenticated Google Play); caches APKs for the scanners. |
+| `apk_surface_map.py` | Attack-surface mapper: exported components, deeplinks, API endpoints, Firebase, GraphQL → JSONL. Add `--from-dir` to map a fetched cache. |
 | `surface_report.py` | Surface JSONL → ranked "where to hunt" Markdown report. |
 | `scripts/scope_to_packages.py` | Public bug-bounty scopes → package list with provenance. |
 | `install.sh` | Dependency installer (Ubuntu). |

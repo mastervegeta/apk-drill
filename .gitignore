@@ -15,3 +15,7 @@ __pycache__/
 .venv/
 .DS_Store
 unresolved_assets.txt
+
+# Google Play creds for apk_fetch.py — never commit
+.gplay.env
+.gplay.ini

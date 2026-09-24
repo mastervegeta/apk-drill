@@ -402,10 +402,76 @@ def _write_status(fh, package: str, status: str) -> None:
 # main
 # --------------------------------------------------------------------------- #
 
+def _run_from_dir(args) -> int:
+    """Map APKs already on disk (from apk_fetch.py): one subdir per package."""
+    root = args.from_dir
+    if not root.is_dir():
+        log(f"FATAL: --from-dir is not a directory: {root}")
+        return 1
+    pkg_dirs = [d for d in sorted(root.iterdir())
+                if d.is_dir() and not d.name.startswith("_")]
+    if not pkg_dirs:
+        log(f"FATAL: no package subdirs under {root}")
+        return 1
+
+    done = already_mapped(args.output) if args.skip_mapped else set()
+    log(f"Mapping {len(pkg_dirs)} pre-downloaded package(s) from {root}. "
+        "Scope reminder: authorized targets only.")
+    stats = {"packages": 0, "mapped": 0, "no_apk": 0,
+             "exported_total": 0, "deeplinks_total": 0, "api_total": 0}
+
+    with args.output.open("a", encoding="utf-8") as out_fh:
+        for pd in pkg_dirs:
+            pkg = pd.name
+            stats["packages"] += 1
+            log(f"[{stats['packages']}/{len(pkg_dirs)}] {pkg}")
+            if pkg in done:
+                log("  skip: already mapped")
+                continue
+            # mirror what download_apk returns: top-level apk/xapk files + any
+            # split-apk folder apkeep produced (extract_bundles handles both)
+            downloaded = [p for p in pd.iterdir()
+                          if not p.name.startswith("_")
+                          and (p.is_dir()
+                               or p.suffix.lower() in (".apk", ".xapk", ".apks"))]
+            if not downloaded:
+                log("  no APK in dir")
+                _write_status(out_fh, pkg, "no_apk")
+                stats["no_apk"] += 1
+                continue
+            try:
+                rec = map_package(pkg, downloaded, pd, args.scan_timeout)
+                out_fh.write(json.dumps(rec) + "\n")
+                out_fh.flush()
+                stats["mapped"] += 1
+                c = rec["counts"]
+                exp = (c["exported_activities"] + c["exported_services"]
+                       + c["exported_receivers"] + c["exported_providers"])
+                stats["exported_total"] += exp
+                stats["deeplinks_total"] += c["deeplinks"]
+                stats["api_total"] += c["api_endpoints"]
+                log(f"  exported={exp} (prov={c['exported_providers']}) "
+                    f"deeplinks={c['deeplinks']} api={c['api_endpoints']} "
+                    f"graphql={c['graphql_endpoints']} fb_rtdb={c['firebase_rtdb']}")
+            except Exception as e:
+                log(f"  ERROR: {e!r}")
+                _write_status(out_fh, pkg, f"error:{type(e).__name__}")
+
+    log("---- done ----")
+    for k, v in stats.items():
+        log(f"  {k}: {v}")
+    log(f"Results: {args.output}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="apk-drill: APK attack-surface mapper (single machine).")
-    ap.add_argument("packages", type=Path, help="Path to package list (.txt or .csv).")
+    ap.add_argument("packages", type=Path, nargs="?",
+                    help="Path to package list (.txt or .csv). Omit when using --from-dir.")
+    ap.add_argument("--from-dir", type=Path, default=None,
+                    help="Map already-downloaded APKs: a directory whose subdirs are "
+                         "packages (as produced by apk_fetch.py). Skips downloading.")
     ap.add_argument("-o", "--output", type=Path, default=Path("surface_latest.jsonl"),
                     help="JSONL results file (default: surface_latest.jsonl).")
     ap.add_argument("--source", default="apk-pure", help="apkeep source (default: apk-pure).")
@@ -419,7 +485,7 @@ def main() -> int:
                     help="Scratch directory (default: ._apk_surface_work).")
     args = ap.parse_args()
 
-    if shutil.which("apkeep") is None:
+    if not args.from_dir and shutil.which("apkeep") is None:
         log("FATAL: apkeep not found. Run ./install.sh or see README.md.")
         return 1
     if APK is None:
@@ -427,7 +493,10 @@ def main() -> int:
             "components, deeplinks) will be skipped. `pip install androguard` "
             "to enable it. String-derived surface still runs.")
 
-    if not args.packages.exists():
+    if args.from_dir:
+        return _run_from_dir(args)
+
+    if not args.packages or not args.packages.exists():
         log(f"FATAL: package list not found: {args.packages}")
         return 1
 
