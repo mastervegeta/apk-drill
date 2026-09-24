@@ -20,55 +20,33 @@ STEPS (spare/throwaway account only — bulk Play use can get an account banned)
   5. Paste the printed `GPLAY_AAS_TOKEN=aas_et/...` line into .gplay.env,
      replacing the old GPLAY_OAUTH_TOKEN line.
 
-Pure stdlib. The token is read from --oauth-token or stdin; it is not logged.
+Needs gpsoauth (in the venv). The token is read from --oauth-token or stdin; not logged.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-import urllib.parse
-import urllib.request
 
-AUTH_URL = "https://android.googleapis.com/auth"
-# Public GMS client signature used by the standard oauth->aas exchange.
-CLIENT_SIG = "38918a453d07199354f8b19af05ec6562ced5788"
+import gpsoauth  # maintained lib; sends the device-shaped request Google requires
+
+# A stable 16-hex device id for the exchange. Keep it constant so the account
+# stays associated with one "device"; also store it as GPLAY_DEVICE if you like.
+DEFAULT_ANDROID_ID = "3232f4a1b0c9d8e7"
 
 
-def exchange(email: str, oauth_token: str, country: str = "us") -> dict:
-    body = urllib.parse.urlencode({
-        "Email": email,
-        "Token": oauth_token,
-        "service": "ac2dm",
-        "accountType": "HOSTED_OR_GOOGLE",
-        "has_permission": "1",
-        "add_account": "1",
-        "source": "android",
-        "app": "com.google.android.gms",
-        "client_sig": CLIENT_SIG,
-        "device_country": country.lower(),
-        "operatorCountry": country.lower(),
-        "lang": "en",
-        "sdk_version": "17",
-    }).encode()
-    req = urllib.request.Request(
-        AUTH_URL, data=body,
-        headers={"User-Agent": "GoogleAuth/1.4",
-                 "Content-Type": "application/x-www-form-urlencoded"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        text = r.read().decode("utf-8", "replace")
-    out = {}
-    for line in text.splitlines():
-        if "=" in line:
-            k, v = line.split("=", 1)
-            out[k.strip()] = v.strip()
-    return out
+def exchange(email: str, oauth_token: str, android_id: str, country: str = "us") -> dict:
+    return gpsoauth.exchange_token(
+        email, oauth_token, android_id,
+        device_country=country.lower(), operator_country=country.lower())
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="Exchange a Google OAuth token for an AAS token.")
     ap.add_argument("--email", required=True, help="The throwaway account email.")
     ap.add_argument("--oauth-token", help="Fresh oauth2_4/... token (or pass via stdin).")
+    ap.add_argument("--android-id", default=DEFAULT_ANDROID_ID,
+                    help="16-hex device id for the exchange (default is fine; keep it stable).")
     ap.add_argument("--country", default="us", help="Account region (default us).")
     args = ap.parse_args()
 
@@ -78,7 +56,7 @@ def main() -> int:
               file=sys.stderr)
 
     try:
-        res = exchange(args.email, token, args.country)
+        res = exchange(args.email, token, args.android_id, args.country)
     except Exception as e:
         print(f"Exchange request failed: {e!r}", file=sys.stderr)
         return 1
