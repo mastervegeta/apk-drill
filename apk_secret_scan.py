@@ -262,6 +262,9 @@ def main() -> int:
     ap.add_argument("packages", type=Path, help="Path to package list (.txt or .csv).")
     ap.add_argument("-o", "--output", type=Path, default=Path("results_latest.jsonl"),
                     help="JSONL results file (default: results_latest.jsonl).")
+    ap.add_argument("--from-dir", type=Path, default=None,
+                    help="Scan pre-downloaded APKs in <from-dir>/<package> instead of "
+                         "downloading (never deletes the from-dir).")
     ap.add_argument("--source", default="apk-pure",
                     help="apkeep source (default: apk-pure).")
     ap.add_argument("--only-verified", action="store_true",
@@ -316,9 +319,14 @@ def main() -> int:
                 log("  skip: does not look like a package name")
                 continue
 
-            pkg_dir = args.workdir / pkg
+            pkg_dir = (args.from_dir / pkg) if args.from_dir else (args.workdir / pkg)
             try:
-                downloaded = download_apk(pkg, pkg_dir, args.source, args.download_timeout)
+                if args.from_dir:
+                    exts = (".apk", ".xapk", ".apks", ".apkm")
+                    downloaded = sorted(p for p in pkg_dir.rglob("*")
+                                        if p.suffix.lower() in exts) if pkg_dir.exists() else []
+                else:
+                    downloaded = download_apk(pkg, pkg_dir, args.source, args.download_timeout)
                 if not downloaded:
                     stats["download_failed"] += 1
                     _write_status(out_fh, pkg, "download_failed")
@@ -350,7 +358,8 @@ def main() -> int:
                 log(f"  ERROR: {e!r}")
                 _write_status(out_fh, pkg, f"error:{type(e).__name__}")
             finally:
-                if not args.keep_files and pkg_dir.exists():
+                # Never delete a caller-provided --from-dir; only clean our own workdir.
+                if not args.keep_files and not args.from_dir and pkg_dir.exists():
                     shutil.rmtree(pkg_dir, ignore_errors=True)
 
     log("---- done ----")
