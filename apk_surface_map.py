@@ -52,6 +52,13 @@ from apk_secret_scan import (
     looks_like_package,
 )
 
+# androguard is chatty (loguru DEBUG on every AXML tag); silence it before use
+try:
+    from loguru import logger as _loguru
+    _loguru.disable("androguard")
+except Exception:
+    pass
+
 # androguard is optional; degrade gracefully if it isn't installed
 try:
     from androguard.core.apk import APK  # androguard >= 4
