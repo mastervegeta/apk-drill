@@ -46,6 +46,7 @@ from scope_to_packages import (  # noqa: E402
     program_fields,
 )
 from new_projects_watch import bounty_flag  # noqa: E402
+from play_whatsnew import fetch_whatsnew  # noqa: E402
 
 try:
     from google_play_scraper import app as play_app
@@ -125,6 +126,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, help="Poll at most N apps (smoke test).")
     ap.add_argument("--report-all", action="store_true",
                     help="On first run, report the whole baseline instead of staying quiet.")
+    ap.add_argument("--no-whatsnew", action="store_true",
+                    help="Skip fetching Play 'What's new' text for changed apps.")
     ap.add_argument("--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -196,6 +199,20 @@ def main() -> int:
     if not reportable:
         return 0
 
+    # Enrich only the changed apps with Play "What's new" text (no disk, few apps).
+    if not args.no_whatsnew:
+        for u in reportable:
+            try:
+                wn = fetch_whatsnew(u["package"], lang=args.lang, country=args.country,
+                                    expected_epoch=int(u.get("updated") or 0) or None)
+                u["whatsnew"] = (wn or {}).get("whatsnew") or ""
+            except Exception as e:
+                u["whatsnew"] = ""
+                if not args.quiet:
+                    print(f"    whatsnew {u['package']}: {e!r}", file=sys.stderr)
+            if args.delay:
+                time.sleep(args.delay)
+
     args.report_dir.mkdir(parents=True, exist_ok=True)
     out = args.report_dir / f"app-updates-{today}.md"
     lines = [
@@ -213,6 +230,9 @@ def main() -> int:
             f"- **{u.get('title') or u['package']}** — `{u['package']}`  "
             f"\n  {ver} · updated {u.get('updated_date')} · "
             f"{u['program']} [{u['platform']}] · {u['policy_url']}")
+        wn = (u.get("whatsnew") or "").replace("\n", " ").strip()
+        if wn:
+            lines.append(f"  \n  > **What's new:** {wn[:600]}")
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Wrote {out} — {len(reportable)} updated app(s).")
 
