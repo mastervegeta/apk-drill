@@ -24,3 +24,6 @@ unresolved_assets.txt
 state/
 reports/new-projects-*.md
 reports/new-android-*.txt
+reports/app-updates-*.md
+reports/updated-android-*.txt
+.venv/
