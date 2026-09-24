@@ -83,3 +83,14 @@ echo ""
 echo "==> Done. Verify:"
 echo "      apkeep --version"
 echo "      trufflehog --version"
+
+# --- optional: androguard for the attack-surface mapper (apk_surface_map.py) ---
+echo ""
+echo "==> Optional: androguard (manifest analysis for apk_surface_map.py)"
+if command -v pip3 >/dev/null 2>&1; then
+    pip3 install --quiet androguard 2>/dev/null \
+        && echo "    androguard installed" \
+        || echo "    androguard install skipped (pip failed) — mapper still runs, minus manifest analysis"
+else
+    echo "    pip3 not found — skip; the mapper runs without it (minus manifest analysis)"
+fi

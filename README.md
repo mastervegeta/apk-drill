@@ -139,9 +139,33 @@ Open `report.md` for findings grouped by package, severity, and the fix plan.
 - `apkeep` and APKPure's endpoints change over time; if downloads start failing,
   update apkeep first (`cargo install apkeep --force`).
 
+## Beyond secrets: attack-surface mapping
+
+Hardcoded-secret scanning is the most duplicated technique in mobile bounty —
+popular apps get TruffleHog'd the week a program launches. To surface leads that
+dup far less, `apk_surface_map.py` decompiles each APK and maps what there is to
+*test*, not just what leaks:
+
+```bash
+pip install androguard          # optional, enables manifest analysis
+python3 apk_surface_map.py packages.txt -o surface_latest.jsonl --keep-files
+python3 surface_report.py surface_latest.jsonl -o surface_report.md
+```
+
+It emits, per app: exported components (activities/services/receivers/**content
+providers**), **deeplinks** (BROWSABLE scheme/host/path + App Links), **API
+endpoints** (hosts, `/api|/v1|/graphql`), **Firebase** (RTDB URLs, buckets,
+google keys), **GraphQL** endpoints, and manifest posture (debuggable /
+cleartext / allowBackup / sdk). `surface_report.py` ranks apps by testable
+surface — exported providers, deeplinks, GraphQL and Firebase weigh highest
+because they pay and dup least. You then hunt those leads manually (content-
+provider SQLi/IDOR, deeplink/WebView abuse, BOLA/IDOR on the endpoints) within
+the program's scope. Without androguard the string-derived surface
+(endpoints/firebase/graphql) still runs; only manifest analysis is skipped.
+
 ## Not built (yet)
 
-Fan-out across multiple machines. The scanner runs fine standalone; a
+Fan-out across multiple machines. Both pipelines run fine standalone; a
 per-package worker split would be the starting point if scaling is wanted later.
 
 ## Files
@@ -149,7 +173,9 @@ per-package worker split would be the starting point if scaling is wanted later.
 | File | Purpose |
 |---|---|
 | `apk_secret_scan.py` | Main download → extract → scan → JSONL pipeline. |
-| `report.py` | JSONL → Markdown report + remediation plan. |
+| `report.py` | Secret-scan JSONL → Markdown report + remediation plan. |
+| `apk_surface_map.py` | Attack-surface mapper: exported components, deeplinks, API endpoints, Firebase, GraphQL → JSONL. |
+| `surface_report.py` | Surface JSONL → ranked "where to hunt" Markdown report. |
 | `scripts/scope_to_packages.py` | Public bug-bounty scopes → package list with provenance. |
 | `install.sh` | Dependency installer (Ubuntu). |
 | `packages.example.txt` | Example package list. |
