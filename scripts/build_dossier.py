@@ -71,22 +71,32 @@ def read_live(recon_dir: Path):
 
 
 def httpx_tech(hosts):
-    """{url: 'Tech, Tech'} via httpx -td, or {} if unavailable."""
+    """{url: {'status','title','tech':[...]}} via httpx -json, or {} if unavailable.
+
+    JSON keeps tech separate from title/status so titles like "Admin" don't leak
+    into the tech fingerprint (which the n-day matcher keys on).
+    """
     if not (hosts and shutil.which("httpx")):
         return {}
     try:
-        r = subprocess.run(["httpx", "-silent", "-td", "-sc", "-title", "-no-color"],
+        r = subprocess.run(["httpx", "-silent", "-json", "-td", "-sc", "-title", "-no-color"],
                            input="\n".join(hosts), capture_output=True, text=True, timeout=600)
     except Exception:
         return {}
     out = {}
     for line in r.stdout.splitlines():
-        parts = line.split()
-        if not parts:
+        line = line.strip()
+        if not line:
             continue
-        url = parts[0]
-        tech = re.findall(r'\[([^\]]*)\]', line)
-        out[url] = " · ".join(t for t in tech if t)
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        out[d.get("url", "")] = {
+            "status": d.get("status_code", ""),
+            "title": (d.get("title", "") or "")[:60],
+            "tech": d.get("tech", []) or [],
+        }
     return out
 
 
@@ -167,9 +177,11 @@ def main() -> int:
     sm.append(f"In-scope: {len(hosts)} host(s) + {len(wild)} wildcard(s). Live: {len(live)}.\n")
     if wild:
         sm.append("**Wildcards (enum roots):** " + ", ".join(f"`{w}`" for w in wild) + "\n")
-    sm.append("\n## Live hosts\n| host | status/tech |\n|---|---|")
+    sm.append("\n## Live hosts\n| host | status | title | tech |\n|---|---|---|---|")
     for u in sorted(live):
-        sm.append(f"| {u} | {tech.get(u, '')} |")
+        info = tech.get(u, {})
+        sm.append(f"| {u} | {info.get('status','')} | {info.get('title','')} | "
+                  f"{', '.join(info.get('tech', []))} |")
     (args.out / "sitemap.md").write_text("\n".join(sm) + "\n", encoding="utf-8")
 
     # ---- apis.md ----
@@ -214,7 +226,7 @@ def main() -> int:
         fp.append(f"- **mobile** (exported={surf['exported']}, deeplinks={len(surf['deeplinks'])}, "
                   f"fb_rtdb={surf['fb']}) → mobile")
     fp.append("\n## Tech stack (httpx -td)")
-    seen_tech = sorted({t for t in tech.values() if t})
+    seen_tech = sorted({t for info in tech.values() for t in info.get("tech", [])})
     fp += [f"- {t}" for t in seen_tech] or ["- (httpx unavailable or no detections)"]
     fp.append("\n## Notes")
     fp.append("- Object IDs: see apis.md sample UUIDs / endpoint `{id}` params.")
