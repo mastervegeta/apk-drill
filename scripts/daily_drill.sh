@@ -21,7 +21,8 @@ cd "$REPO"
 
 DATE="$(date -u +%F)"
 RETAIN_DAYS="${DRILL_RETAIN_DAYS:-3}"
-CREDS="${DRILL_CREDS:-.gplay.env}"
+CREDS="${DRILL_CREDS:-$HOME/.config/gplay.env}"
+[[ -f "$CREDS" ]] || CREDS=".gplay.env"   # fallback to repo copy
 DRILL_ROOT="drill"
 OUT="$DRILL_ROOT/$DATE"
 
