@@ -39,7 +39,9 @@ STOP = {"http", "https", "hsts", "http/3", "http/2", "html", "css", "json", "res
         "api", "node.js", "nginx", "apache", "cloudflare", "amazon web services",
         "amazon cloudfront", "amazon s3", "aws", "google cloud", "envoy", "ssl",
         "tls", "cdn", "webpack", "react", "jquery", "hcaptcha", "recaptcha", "and",
-        "google analytics", "google maps", "linkedin ads", "modernizr"}
+        "google analytics", "google maps", "linkedin ads", "modernizr", "basic",
+        "amazon elb", "atlassian statuspage", "cookieyes", "the seo framework",
+        "wp engine", "cloudflare bot management", "google cloud load balancing"}
 
 
 def fetch_json(url: str, timeout: int = 60):

@@ -226,7 +226,21 @@ def main() -> int:
         fp.append(f"- **mobile** (exported={surf['exported']}, deeplinks={len(surf['deeplinks'])}, "
                   f"fb_rtdb={surf['fb']}) → mobile")
     fp.append("\n## Tech stack (httpx -td)")
-    seen_tech = sorted({t for info in tech.values() for t in info.get("tech", [])})
+    seen_tech = {t for info in tech.values() for t in info.get("tech", [])}
+    # Robustness: httpx tech-detect is non-deterministic (some techs cloak/vary), so
+    # UNION with any tech already recorded in the existing assets.md — a detection,
+    # once made, sticks across regenerations instead of flickering out.
+    old = args.out / "assets.md"
+    if old.exists():
+        grab = False
+        for line in old.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("## Tech stack"):
+                grab = True; continue
+            if grab and line.startswith("## "):
+                break
+            if grab and line.startswith("- ") and "unavailable" not in line:
+                seen_tech.add(line[2:].strip())
+    seen_tech = sorted(seen_tech)
     fp += [f"- {t}" for t in seen_tech] or ["- (httpx unavailable or no detections)"]
     fp.append("\n## Notes")
     fp.append("- Object IDs: see apis.md sample UUIDs / endpoint `{id}` params.")
