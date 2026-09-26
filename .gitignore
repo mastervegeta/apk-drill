@@ -32,3 +32,7 @@ reports/updated-android-*.txt
 js_out/
 domains*.csv
 recon/
+
+# bulk/daily drill runtime output (kept locally, pruned by retention)
+drill/
+work/
