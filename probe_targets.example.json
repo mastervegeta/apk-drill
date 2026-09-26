@@ -1,0 +1,53 @@
+{
+  "_comment": "Per-program scope + auth for probe_authz.py. A host is probed ONLY if it matches a target's allow_hosts AND that target has active_testing_permitted:true. An 'identity' is a list of credential injections; 'where' is header|query|cookie. Secret VALUES come from env vars named in 'env' (export before --live) and are never read from this file. Use 'value' only for non-secret constants (e.g. a client-id). Name the two compared identities 'A' and 'B' so the IDOR diff engages.",
+
+  "targets": [
+    {
+      "program": "example-bearer",
+      "active_testing_permitted": false,
+      "allow_hosts": ["api.example.com", "*.api.example.com"],
+      "methods": ["GET"],
+      "scheme": "https",
+      "identities": {
+        "A": [{"where": "header", "name": "Authorization", "prefix": "Bearer ", "env": "EX_A"}],
+        "B": [{"where": "header", "name": "Authorization", "prefix": "Bearer ", "env": "EX_B"}]
+      },
+      "rate": {"rps": 1.0, "jitter_ms": 400}
+    },
+
+    {
+      "program": "example-apikey-header",
+      "active_testing_permitted": false,
+      "allow_hosts": ["gw.example.io"],
+      "methods": ["GET"],
+      "identities": {
+        "A": [{"where": "header", "name": "X-Api-Key", "env": "K_A"}],
+        "B": [{"where": "header", "name": "X-Api-Key", "env": "K_B"}]
+      }
+    },
+
+    {
+      "program": "example-query-token",
+      "active_testing_permitted": false,
+      "allow_hosts": ["legacy.example.net"],
+      "methods": ["GET"],
+      "identities": {
+        "A": [{"where": "query", "name": "access_token", "env": "Q_A"}],
+        "B": [{"where": "query", "name": "access_token", "env": "Q_B"}]
+      }
+    },
+
+    {
+      "program": "example-cookie-plus-clientid",
+      "active_testing_permitted": false,
+      "allow_hosts": ["portal.example.co"],
+      "methods": ["GET"],
+      "identities": {
+        "A": [{"where": "cookie", "name": "session", "env": "S_A"},
+              {"where": "header", "name": "X-Client-Id", "value": "mobile"}],
+        "B": [{"where": "cookie", "name": "session", "env": "S_B"},
+              {"where": "header", "name": "X-Client-Id", "value": "mobile"}]
+      }
+    }
+  ]
+}
