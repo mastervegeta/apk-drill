@@ -56,6 +56,21 @@ def _get(url: str, timeout: int = 12) -> tuple[int | None, str]:
         return None, type(e).__name__
 
 
+def _get_h(url: str, headers: dict[str, str], timeout: int = 12) -> tuple[int | None, str]:
+    """GET with custom headers (for header-auth providers). Secret stays in headers,
+    never logged or returned."""
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=timeout) as r:
+            return r.status, r.read(2000).decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, e.read(2000).decode("utf-8", "replace")
+        except Exception:
+            return e.code, ""
+    except Exception as e:
+        return None, type(e).__name__
+
+
 def classify_google(api: str, status: int | None, body: str) -> str:
     """Map a probe response to a verdict WITHOUT echoing the key."""
     b = body.lower().replace(" ", "").replace("\n", "")
@@ -122,6 +137,80 @@ def run_manual(kind: str) -> dict:
             "checks": [{"guidance": guides.get(kind, guides["generic"])}]}
 
 
+def classify_algolia(idx_status: int | None, keys_status: int | None) -> tuple[str, str, str]:
+    """Verdict from index-list + key-list responses. Listing keys is admin-only."""
+    if keys_status == 200:
+        return ("critical",
+                "ADMIN API key: full read/write/DELETE across every index PLUS key management "
+                "(create/revoke keys). Complete Algolia application compromise.", "admin")
+    if idx_status == 200:
+        return ("high",
+                "Key can list and browse all indices (broad search-data read/exposure). "
+                "Not admin, but wide read access.", "list/read")
+    if idx_status == 403:
+        return ("low",
+                "Key is restricted (likely search-only / single-index ACL); limited abuse.", "restricted")
+    return ("unknown", f"Unclear (indexes HTTP {idx_status}, keys HTTP {keys_status}).", "unknown")
+
+
+def run_algolia(secret: str, live: bool, app_id: str | None) -> dict:
+    r = {"type": "algolia_admin_key", "checks": [], "severity": "unknown", "impact": ""}
+    if not app_id:
+        r["impact"] = "need --app-id (the Algolia Application ID; it ships alongside the key in the APK, not a secret)"
+        r["checks"].append({"guidance": "re-run with --app-id <APPID>"})
+        return r
+    if not live:
+        r["checks"] = [{"check": "GET /1/indexes (list/read scope)", "verdict": "PLANNED (dry-run)"},
+                       {"check": "GET /1/keys (ADMIN-only)", "verdict": "PLANNED (dry-run)"}]
+        return r
+    h = {"X-Algolia-API-Key": secret, "X-Algolia-Application-Id": app_id}
+    idx_s, idx_b = _get_h(f"https://{app_id}-dsn.algolia.net/1/indexes", h)
+    keys_s, _ = _get_h(f"https://{app_id}.algolia.net/1/keys", h)
+    sev, impact, scope = classify_algolia(idx_s, keys_s)
+    r["severity"], r["impact"], r["scope"] = sev, impact, scope
+    r["checks"] = [{"check": "list indexes", "http": idx_s},
+                   {"check": "list keys (admin)", "http": keys_s}]
+    # Evidence = index names + record counts only (metadata, never records).
+    if idx_s == 200:
+        try:
+            items = json.loads(idx_b).get("items", [])
+            r["indices"] = [{"name": i.get("name"), "entries": i.get("entries")} for i in items[:15]]
+        except Exception:
+            pass
+    return r
+
+
+def classify_datadog(valid: bool) -> tuple[str, str]:
+    if valid:
+        return ("medium",
+                "Live Datadog API (ingest) key: attacker can submit logs/metrics/events into the org "
+                "(data poisoning, false/suppressed alerts, ingest-cost abuse). Pair with an APP key for "
+                "data read. Confirm it is an API key, not a RUM client token (client tokens are by-design).")
+    return ("info", "Key did not validate on the tried site(s): dead, wrong region, or a RUM client token.")
+
+
+def run_datadog(secret: str, live: bool, site: str | None) -> dict:
+    sites = [site] if site else ["datadoghq.com", "datadoghq.eu", "us3.datadoghq.com",
+                                 "us5.datadoghq.com", "ap1.datadoghq.com"]
+    r = {"type": "datadog_api_key", "checks": [], "severity": "unknown", "impact": ""}
+    if not live:
+        r["checks"] = [{"check": f"GET https://api.{s}/api/v1/validate", "verdict": "PLANNED (dry-run)"} for s in sites]
+        return r
+    valid, hit = False, None
+    for s in sites:
+        status, body = _get_h(f"https://api.{s}/api/v1/validate", {"DD-API-KEY": secret})
+        ok = status == 200 and '"valid":true' in body.replace(" ", "").lower()
+        r["checks"].append({"site": s, "http": status, "valid": ok})
+        if ok:
+            valid, hit = True, s
+            break
+    sev, impact = classify_datadog(valid)
+    r["severity"], r["impact"] = sev, impact
+    if hit:
+        r["site"] = hit
+    return r
+
+
 HANDLERS = {"google_api_key": run_google, "newrelic_license_key": run_newrelic}
 
 
@@ -135,6 +224,15 @@ def self_test() -> int:
     nr = run_newrelic("FAKE", live=False)
     assert nr["severity"] == "low" and "ingest" in nr["impact"].lower()
     assert run_manual("aws_access_key")["type"] == "aws_access_key"
+    # algolia: keys 200 => admin/critical; idx 200 only => high; idx 403 => low
+    assert classify_algolia(200, 200)[0] == "critical"
+    assert classify_algolia(200, 403)[0] == "high"
+    assert classify_algolia(403, 403)[0] == "low"
+    assert run_algolia("FAKE", live=False, app_id=None)["impact"].startswith("need --app-id")
+    assert all(c["verdict"].startswith("PLANNED") for c in run_algolia("FAKE", live=False, app_id="APP")["checks"])
+    # datadog
+    assert classify_datadog(True)[0] == "medium" and classify_datadog(False)[0] == "info"
+    assert all(c["verdict"].startswith("PLANNED") for c in run_datadog("FAKE", live=False, site=None)["checks"])
     print("self-test OK")
     return 0
 
@@ -142,8 +240,11 @@ def self_test() -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description="apk-drill secret blast-radius resolver")
     ap.add_argument("--type", help="secret type",
-                    choices=["google_api_key", "newrelic_license_key", "aws_access_key", "generic"])
+                    choices=["google_api_key", "newrelic_license_key", "algolia_admin_key",
+                             "datadog_api_key", "aws_access_key", "generic"])
     ap.add_argument("--secret-env", help="env var holding the secret value (never printed)")
+    ap.add_argument("--app-id", help="Algolia Application ID (not a secret; ships with the key)")
+    ap.add_argument("--dd-site", help="Datadog site (e.g. datadoghq.eu); default: try common sites")
     ap.add_argument("--live", action="store_true", help="actually perform the capability checks")
     ap.add_argument("-o", "--output")
     ap.add_argument("--self-test", action="store_true")
@@ -153,19 +254,28 @@ def main() -> int:
     if not args.type:
         ap.error("--type required (or --self-test)")
 
+    AUTO = ("google_api_key", "newrelic_license_key", "algolia_admin_key", "datadog_api_key")
     if args.type in ("aws_access_key", "generic"):
         result = run_manual(args.type)
     else:
         secret = os.environ.get(args.secret_env or "")
         if args.live and not secret:
             ap.error(f"--live needs the secret in env var {args.secret_env!r} (it is never printed)")
-        result = HANDLERS[args.type](secret or "", args.live)
+        secret = secret or ""
+        if args.type == "google_api_key":
+            result = run_google(secret, args.live)
+        elif args.type == "newrelic_license_key":
+            result = run_newrelic(secret, args.live)
+        elif args.type == "algolia_admin_key":
+            result = run_algolia(secret, args.live, args.app_id)
+        elif args.type == "datadog_api_key":
+            result = run_datadog(secret, args.live, args.dd_site)
 
     blob = json.dumps(result, indent=2)
     print(blob)
     if args.output:
         open(args.output, "a", encoding="utf-8").write(json.dumps(result) + "\n")
-    if not args.live and args.type in HANDLERS:
+    if not args.live and args.type in AUTO:
         print("\n(dry-run — re-run with --live to execute the capability checks)")
     return 0
 
