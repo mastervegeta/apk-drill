@@ -95,6 +95,8 @@ def fetch_one(pkg: str, out_pkg: Path, source: str, creds: dict,
         if not email:
             raise RuntimeError("google-play requires GPLAY_EMAIL in the creds file")
         cmd += ["-e", email, "--accept-tos", "-s", str(sleep_ms)]
+        if os.environ.get("APKEEP_SPLITS"):
+            cmd += ["-o", "split_apk=1"]
         if aas:
             cmd += ["-t", aas]
         elif oauth:

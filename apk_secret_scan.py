@@ -240,6 +240,18 @@ def run_trufflehog(scan_dir: Path, only_verified: bool, timeout: int) -> list[di
     return findings
 
 
+def _redacted(raw: dict) -> str:
+    """trufflehog's Redacted is empty for some detectors (e.g. AlgoliaAdminKey);
+    fall back to a self-masked form of Raw/RawV2 so findings keep evidence."""
+    r = raw.get("Redacted") or ""
+    if r:
+        return r
+    val = raw.get("Raw") or raw.get("RawV2") or ""
+    if len(val) > 12:
+        return val[:4] + "\u2026" + val[-4:]
+    return "***" if val else ""
+
+
 def summarize_finding(package: str, raw: dict) -> dict:
     """Flatten a trufflehog finding into a compact record for the JSONL file."""
     src_meta = raw.get("SourceMetadata", {}).get("Data", {}).get("Filesystem", {})
@@ -248,7 +260,8 @@ def summarize_finding(package: str, raw: dict) -> dict:
         "detector": raw.get("DetectorName"),
         "verified": bool(raw.get("Verified", False)),
         "file": src_meta.get("file"),
-        "raw_secret_redacted": (raw.get("Redacted") or "")[:120],
+        "raw_secret_redacted": _redacted(raw)[:120],
+        "extra": raw.get("ExtraData"),
         "scanned_at": datetime.now(timezone.utc).isoformat(),
     }
 
