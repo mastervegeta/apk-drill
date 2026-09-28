@@ -7,18 +7,16 @@ download → extract → scan with **TruffleHog** (including live-key verificati
 Built for authorized bug-bounty work. Lean and standalone — no fleet or
 distribution layer.
 
-## ⚠️ Scope & authorization
+##  Scope & authorization
 
-Run this **only** against APKs you are authorized to test:
+Run this against APKs you are authorized to test:
 
 - your own applications, or
 - packages whose **bug-bounty program scope explicitly permits** mobile/APK
   testing (e.g. HackerOne / Bugcrowd / YesWeHack entries listing a Google Play
   asset in scope).
 
-Scanning arbitrary third-party apps for their secrets is not authorized
-security testing. When you find a live key in an in-scope app, report it through
-the program — don't use it.
+
 
 ## Pipeline
 
@@ -77,10 +75,7 @@ manual Play Store lookup rather than being guessed at.
 Useful flags: `--platforms hackerone yeswehack`, `--program acme` (substring
 filter), `--bounty-only`, `--cache-dir` (reuse the downloaded JSON).
 
-> **A scope listing is not authorization.** The script reports what a program
-> *lists*; it cannot tell you whether the program permits APK/mobile testing,
-> whether it's open to you, or whether the listing is current. Read the policy
-> before scanning anything it emits.
+
 
 ## Usage
 
@@ -163,10 +158,6 @@ provider SQLi/IDOR, deeplink/WebView abuse, BOLA/IDOR on the endpoints) within
 the program's scope. Without androguard the string-derived surface
 (endpoints/firebase/graphql) still runs; only manifest analysis is skipped.
 
-## Not built (yet)
-
-Fan-out across multiple machines. Both pipelines run fine standalone; a
-per-package worker split would be the starting point if scaling is wanted later.
 
 ## Files
 
